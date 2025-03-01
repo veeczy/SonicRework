@@ -16,9 +16,15 @@ public class playerMovement : MonoBehaviour
     public bool grounded;
     public bool walking;
 
+    //public GameObject sonic;
     [SerializeField] private Rigidbody2D rb;
     [SerializeField] private Transform groundCheck;
     [SerializeField] private LayerMask groundLayer;
+
+    //Variables for controls
+    //public KeyCode jumpKey = KeyCode.Space;
+    public KeyCode downKey = KeyCode.S;
+    
     //Variables for animations
     Animator animator;
     public bool slope = false;
@@ -28,17 +34,27 @@ public class playerMovement : MonoBehaviour
     public int lives = 3;
     public TextMeshProUGUI livesText;
 
+    //variables for cheats
+    public bool cheat = false;
+    public AudioSource buttonSource; //sound for when you click button
+    public GameObject cheatHUD;
+
     //Variables for Collectibles
     public int coinCount;
     public int total = 100;
     public TextMeshProUGUI coinText;
 
-    //Variables for Timer
+    //Variables for Timer on gametime
     public float timeRemaining;
     public bool timerIsRunning;
     public float minutes;
     public float seconds;
     public TextMeshProUGUI timeText;
+    //variables for damage cooldown
+    public bool damageCooldown;
+    public float cooldownRemaining;
+    public float cooldownMinutes;
+    public float cooldownSeconds;
 
     //Variables for Win/Lose
     public bool win = false;
@@ -48,25 +64,26 @@ public class playerMovement : MonoBehaviour
     public GameObject loseScreen;
 
     //Variables for VFX
-    public AudioSource backgroundMusic;
-    public AudioSource jumpSource;
-    public AudioSource winSource;
-    public AudioSource loseSource;
-    public AudioSource coinSource;
-    public AudioSource damagePlantSource;
-    public AudioSource damageDeerSource;
-    public AudioSource enemyDamageSource;
-    public AudioSource runSource;
-    [SerializeField] private ParticleSystem damageParticles;
-    [SerializeField] private ParticleSystem jumpParticles;
-    [SerializeField] private ParticleSystem coinParticles;
+    public AudioSource backgroundMusic; //bg music
+    public AudioSource jumpSource; //sound for when you jump
+    public AudioSource winSource; //sound for when you win the game
+    public AudioSource loseSource; //sound for when you lose the game
+    public AudioSource coinSource; //sound for +coin
+    public AudioSource enemyDamageSource; //sound for enemy destroyed
+    public AudioSource runSource; //sound for footsteps
+    public AudioSource damageSource; //sound for when u are hurt
+    [SerializeField] private ParticleSystem damageParticles; //explosion particles
+    [SerializeField] private ParticleSystem jumpParticles; //jump dust particles
+    [SerializeField] private ParticleSystem coinParticles; //coins lost (player took damage) particles
+
 
     // Start is called before the first frame update
     void Start()
     {
         timeRemaining = 180f;
-        // if cutscene for start is done
         timerIsRunning = true;
+        damageCooldown = false;
+        cooldownRemaining = 2f;
         win = false;
         lose = false;
 
@@ -80,24 +97,34 @@ public class playerMovement : MonoBehaviour
     void Update()
     {
         //win lose ui
-        if (!win) { winScreen.gameObject.SetActive(false); }
-        if (!lose) { loseScreen.gameObject.SetActive(false); }
-
-
-        // player movement 
+        if (!win) { winScreen.SetActive(false); }
+        if(win || lose)
+        {
+            horizontal = 0;
+            jumping = false;
+            spindash = false;
+        }
+        if (!lose) { loseScreen.SetActive(false); }
+ 
         //detect movement input
         horizontal = Input.GetAxis("Horizontal");
         if(horizontal < 0) { Flip(); }
         if (horizontal > 0) { Flip(); }
+
         //speed up more you run
         if(horizontal != 0)
         {
             speed = speed + 2*(Time.deltaTime);
             walking = true;
+            //runSource.Play();
         }
-        if (horizontal == 0) { walking = false;}
+        if (horizontal == 0)
+        {
+            walking = false;
+            //runSource.Stop();
+        }
         animator.SetBool("walking", walking);
-        if (horizontal == 0) { speed = 2; }
+        if (horizontal == 0) { speed = 2; } // reset speed when you come to a stop/hit obstacle
 
         //check if grounded
         if(IsGrounded()) { grounded = true; }
@@ -115,7 +142,7 @@ public class playerMovement : MonoBehaviour
         {
             jumping = false;
         }
-        animator.SetBool("jumping", jumping);
+        animator.SetBool("jumping", jumping); //jumping animation
 
         //jump up more you jumping
         if (jumping)
@@ -124,43 +151,32 @@ public class playerMovement : MonoBehaviour
             if (jumpingPower >= 5.3) { jumping = false; } // height cap for jumping
             rb.velocity = new Vector2(rb.velocity.x, jumpingPower); // jump movement
         }
-        if (!jumping && !grounded)
+        if (!jumping && !grounded) // gravity when in air
         {
             jumpingPower = jumpingPower - (.3f * (Time.deltaTime)); // lower jump if you are not holding space
             //animator.SetBool("jumping", false);
         }
-        if (!jumping && grounded)
+        if (!jumping && grounded) // when you reach the ground
         {
             jumpingPower = 4.3f; // reset jump power when on ground
         }
 
-
-        // spindash ?
-        if(Input.GetKeyDown(KeyCode.S))
+        // spindash
+        if(Input.GetKeyDown(downKey))
         {
-            //spindash animation
             spindash = true;
-            jumpParticles.Play();
-            //hitbox change size
-            //speed change
+            IsInvincible = true;
         }
-        if(Input.GetKeyUp(KeyCode.S))
+        if(Input.GetKeyUp(downKey))
         {
             spindash = false;
-            //fix hit box
+            IsInvincible = false;
         }
-        animator.SetBool("spindash", spindash);
+        animator.SetBool("spindash", spindash); //spindash animation
+        if(spindash) { speed = speed + (2.5f)*(Time.deltaTime); } //faster when spindashing
 
-
-        //run 45
-        if (horizontal > 0 && slope)
-        {
-            animator.SetBool("run45", true);
-        }
-        if(!slope) { animator.SetBool("run45", false); }
-
-        //timer
-        if (timeRemaining > 0 && timerIsRunning)
+        //timer on game
+        if (timeRemaining > 0 && timerIsRunning) //if timer is running
         {
             timeRemaining -= Time.deltaTime;
         }
@@ -170,12 +186,13 @@ public class playerMovement : MonoBehaviour
             lose = true;
             Debug.Log("Time has run out!");
             timeRemaining = 0;
+            GameLost();
             //timerIsRunning = false;
         }
 
         //timer display in UI
-        minutes = Mathf.FloorToInt(timeRemaining / 60);
-        seconds = Mathf.FloorToInt(timeRemaining % 60);
+        minutes = Mathf.FloorToInt(timeRemaining / 60); //calculate minutes
+        seconds = Mathf.FloorToInt(timeRemaining % 60); //calculate seconds
         timeText.text = string.Format("TIME {0:00}:{1:00}", minutes, seconds);
         coinText.text = string.Format("RINGS {0}", coinCount);
         livesText.text = string.Format("{0}", lives);
@@ -183,9 +200,49 @@ public class playerMovement : MonoBehaviour
         if (timeRemaining == 0)
         {
             timeText.text = ("0:00");
-            gameLost();
+            GameLost();
         }
 
+        //damage cooldown timer
+        if(damageCooldown && (cooldownRemaining > 0))
+        {
+            IsInvincible = true;
+            cooldownRemaining -= Time.deltaTime;
+        }
+        if(damageCooldown && (cooldownRemaining <= 0))
+        {
+            IsInvincible = false;
+            damageCooldown = false;
+        }
+        if(!damageCooldown)
+        {
+            cooldownRemaining = 2f;
+        }
+
+
+        //if cheat is on
+        if(cheat)
+        {
+            // physical effects
+            //damageCooldown = false;
+            IsInvincible = true;
+
+            // visual effects
+            // particle system or some sort of color alt ?
+
+            cheatHUD.SetActive(true); // hud screen that states cheats are on
+        }
+        if(!cheat)
+        {
+            // physical effects
+            //damageCooldown = true;
+            IsInvincible = false;
+
+            // visual effects
+            // particle system or some sort of color alt ?
+
+            cheatHUD.SetActive(false); // hud screen that states cheats are on
+        }
     }
 
     // FixedUpdate has the same call rate as the physics system
@@ -217,10 +274,7 @@ public class playerMovement : MonoBehaviour
         // collect coin
         if (other.gameObject.CompareTag("Coin"))
         {
-            //remove collectible
-            Destroy(other.gameObject);
             // vfx
-            //coinParticles.Play();
             coinSource.Play();
 
             //remove collectible
@@ -233,61 +287,83 @@ public class playerMovement : MonoBehaviour
         //damage system
         if (other.gameObject.CompareTag("Enemy"))
         {
-            if (coinCount > 0 && (!IsInvincible))
+            if (coinCount > 0 && (!IsInvincible) && (!damageCooldown))
             {
-                //damageParticles.Play();
-                coinParticles.Play();
-                damageDeerSource.Play();
-                coinCount = 0;
+                coinParticles.Play(); // coins throw around
+                damageSource.Play(); // sound for player hurt
+                damageCooldown = true;
+                coinCount = 0; //reset coin value
             }
-            if (coinCount == 0 && (!IsInvincible))
+            if (coinCount == 0 && (!IsInvincible) && (!damageCooldown))
             {
-                damageParticles.Play();
-                damageDeerSource.Play();
+                // sound for player hurt
                 if (lives > 0 && coinCount == 0)
                 {
-                    lives = lives - 1;
+                    // play any character death animation
+                    lives = lives - 1; // lives decreased
                     //move player position to start
+                    transform.position = new Vector3(-29.2f, -58.17f, 1.14f);
                 }
                 if (lives == 0)
                 {
-                    gameLost();
+                    GameLost(); //gameover
                 }
             }
-            if (IsInvincible)
+            if(spindash || ((IsInvincible) && (!damageCooldown)) || cheat)
             {
-                enemyDamageSource.Play();
-                Destroy(other.gameObject);
+                enemyDamageSource.Play(); // sound for enemy destroyed
+                Destroy(other.gameObject); //destroy enemy
+                damageParticles.Play(); // explosion
             }
         }
 
-        if (other.gameObject.CompareTag("winzone"))
+        if (other.gameObject.CompareTag("End"))
         {
+            GameWon();
             timerIsRunning = false;
-            gameWon();
+        }
+
+        if (other.gameObject.CompareTag("Death"))
+        {
+            if((lives > 0) && (!cheat))
+            {
+                damageSource.Play();
+                //lose a life and reset position
+                lives--;
+                transform.position = new Vector3(-29.2f, -58.17f, 1.14f);
+            }
+            if(cheat) { transform.position = new Vector3(-29.2f, -58.17f, 1.14f); } // no penalty if you have cheat on
+            if(lives == 0)
+            {
+                GameLost();
+            }
         }
     }
     //for when working on invincibility cheat
-    bool cheatOn()
+    public void CheatOn()
     {
-        IsInvincible = true;
-        return IsInvincible;
+        cheat = !cheat;
+        buttonSource.Play();
     }
 
     //script for win and lose, where you change scene and play sound
-    void gameWon()
+    void GameWon()
     {
         //win script
         backgroundMusic.Stop();
         winSource.Play();
-        winScreen.gameObject.SetActive(true);
+        win = true;
+        // UI trigger in UI manager
+        winScreen.SetActive(true);
     }
-    void gameLost()
+    void GameLost()
     {
         //lose script
         backgroundMusic.Stop();
-        loseSource.Stop();
-        loseScreen.gameObject.SetActive(true);
+        loseSource.Play();
+        lose = true;
+        // UI trigger in UI manager
+        loseScreen.SetActive(true);
     }
 
 }
